@@ -1,0 +1,4 @@
+python-dotenv
+O365
+openai
+openpyxl

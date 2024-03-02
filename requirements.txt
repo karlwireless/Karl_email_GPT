@@ -1,4 +1,6 @@
-python-dotenv
-O365
+msal
+requests
 openai
 openpyxl
+python-dotenv
+beautifulsoup4

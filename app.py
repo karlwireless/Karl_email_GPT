@@ -241,7 +241,8 @@ while True:
         
         # Reply within the same email thread
         reply = message.reply()
-        reply.body = assistant_reply
+        reply.body = assistant_reply.replace("\n", "<br>")
+        reply.body_type = 'HTML'
         reply.send()
         print("Replied with assistant's response.")
 

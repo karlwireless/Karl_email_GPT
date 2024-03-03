@@ -40,7 +40,7 @@ def get_access_token():
     global access_token_info
     app = ConfidentialClientApplication(CLIENT_ID, authority=AUTHORITY, client_credential=CLIENT_SECRET)
     # Only acquire a new token if the current one is expired or about to expire
-    print("token info, " access_token_info)
+    print("token info, ", access_token_info)
     if not access_token_info['token'] or datetime.now() >= access_token_info['expires_at']:
         token_response = app.acquire_token_for_client(scopes=SCOPE)
         print("token_response", token_response)

@@ -8,11 +8,13 @@ import openpyxl
 from dotenv import load_dotenv
 import base64
 from bs4 import BeautifulSoup
+import anthropic
 
 load_dotenv()
 
 # Set OpenAI API key and other essential variables
 openai.api_key = os.getenv('OPENAI_API_KEY')
+anthropic_client = anthropic.Client(api_key=os.getenv('ANTHROPIC_API_KEY'))
 TENANT_ID = os.environ.get('TENANT_ID')
 CLIENT_ID = os.environ.get('CLIENT_ID')
 CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
@@ -40,10 +42,8 @@ def get_access_token():
     global access_token_info
     app = ConfidentialClientApplication(CLIENT_ID, authority=AUTHORITY, client_credential=CLIENT_SECRET)
     # Only acquire a new token if the current one is expired or about to expire
-    print("token info, ", access_token_info)
     if not access_token_info['token'] or datetime.now() >= access_token_info['expires_at']:
         token_response = app.acquire_token_for_client(scopes=SCOPE)
-        print("token_response", token_response)
         if 'access_token' in token_response and 'expires_in' in token_response:
             access_token_info['token'] = token_response['access_token']
             # Set the expiration time to be a bit before the token actually expires to ensure we have a valid token
@@ -98,6 +98,32 @@ def getAssistantResponse(prompt, file_ids=None):
     last_message = messages.data[0].content[0].text.value
 
     return last_message
+
+def getAnthropicResponse(prompt):
+    print("Generating Anthropics response...")
+    response = anthropic_client.messages.create(
+        model="claude-2.1",
+        system="""You are a professional personal assistant. When you receive information, requests, questions, do a thorough job of reviewing, checking with all resources you can find online including Google, Bing, and any other resource you may find to provide the most detailed and accurate answer.
+
+In all replies, start with the greeting "Hi [FIRST NAME], Guru #2" where [FIRST NAME] is the first name of the person sending the message and always use 'Guru #2' not another number.
+End each reply with:
+"Best -
+Karl's BOT"
+
+For formatting, do not include anything like "Subject:" or "Message:" as the response will be directly sent to the user.
+
+Additionally, do not include any placeholders like [FIRST NAME] or [Your Name] or [Your Position] in the e mail, as the e mail will be directly sent to the user.""",
+        max_tokens=1024,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+
+    # Assuming the last message in the response is the assistant's response
+    anthropic_response = response.content[-1].text
+
+    return anthropic_response
+
 
 def send_file_to_openai(file_object):
     try:
@@ -216,6 +242,10 @@ def send_email_with_attachment(access_token, recipient, subject, body, attachmen
         print(f"Failed to send email: {response.text}")
     os.remove(attachment_path)  # Delete the report file after sending the email
 
+def markdown_to_html_bold(text):
+    # Replace '**' with '<b>' and '</b>' tags
+    return text.replace("**", "<b>").replace("</b>", "<b>")
+
 def main():
     token_info = get_access_token()
     access_token = token_info['token']
@@ -271,6 +301,7 @@ def main():
             if file_ids:
                 prompt = f"Subject: {message['subject']}\nMessage: {message['bodyPreview']}\n\nEmail thread history: {formatted_history}\n\nPlease draft a reply considering the attachments."
                 assistant_reply = getAssistantResponse(prompt, file_ids)
+                anthropic_reply = getAnthropicResponse(prompt)
             else:
                 if len(conversation_messages_list) > 1:
                     prompt = f"Continue the conversation based on this email thread:\n\n{formatted_history}\n\nPlease draft a reply."
@@ -278,9 +309,16 @@ def main():
                     prompt = f"Subject: {message['subject']}\nMessage: {message['bodyPreview']}\n\nPlease draft a reply."
 
                 assistant_reply = getAssistantResponse(prompt)
+                anthropic_reply = getAnthropicResponse(prompt)
 
             print(prompt)
+            print("OpenAI's Assistant Reply:")
             print(assistant_reply)
+            print("Anthropics's Reply:")
+            print(anthropic_reply)
+
+            assistant_reply_html = markdown_to_html_bold(assistant_reply)
+            anthropic_reply_html = markdown_to_html_bold(anthropic_reply)
 
             # Reply within the same email thread
             reply_endpoint = f'https://graph.microsoft.com/v1.0/users/{USER_EMAIL}/messages/{message_id}/reply'
@@ -288,7 +326,7 @@ def main():
                 "message": {
                     "body": {
                         "contentType": "HTML",
-                        "content": assistant_reply.replace("\n", "<br>")
+                        "content": assistant_reply_html.replace("\n", "<br>")
                     }
                 }
             }
@@ -297,6 +335,22 @@ def main():
                 print("Replied with assistant's response.")
             else:
                 print(f"Failed to reply: {response.text}")
+
+            # Reply within the same email thread with the Anthropics response
+            reply_payload_anthropic = {
+                "message": {
+                    "body": {
+                        "contentType": "HTML",
+                        "content": anthropic_reply.replace("\n", "<br>")
+                    }
+                }
+            }
+            response_anthropic = requests.post(reply_endpoint, headers={'Authorization': f'Bearer {access_token}'}, json=reply_payload_anthropic)
+            if response_anthropic.status_code == 202:
+                print("Replied with Anthropics's response.")
+            else:
+                print(f"Failed to reply with Anthropics's response: {response_anthropic.text}")
+
 
         time.sleep(60)  # Sleep before checking again
 

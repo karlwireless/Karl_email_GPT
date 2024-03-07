@@ -4,3 +4,4 @@ openai
 openpyxl
 python-dotenv
 beautifulsoup4
+anthropic
